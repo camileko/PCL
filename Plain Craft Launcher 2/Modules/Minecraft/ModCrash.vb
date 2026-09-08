@@ -879,6 +879,7 @@ NextStack:
                 Catch ex As Exception
                     Logger.Warn(ex, $"使用系统默认程序打开日志文件失败（{FilePath}）")
                     Hint("使用系统默认程序打开日志文件失败", HintType.Red)
+                    OpenExplorer(FilePath) 
                 End Try
             End Sub))
             Case 3
