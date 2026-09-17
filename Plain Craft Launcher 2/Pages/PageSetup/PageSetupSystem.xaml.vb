@@ -6,6 +6,10 @@ Public Class PageSetupSystem
         '重复加载部分
         PanBack.ScrollToHome()
 
+        AniControlEnabled += 1
+        Reload()
+        AniControlEnabled -= 1
+
         If BuildType = BuildTypes.Release Then
             PanDonate.Visibility = Visibility.Collapsed
         Else
@@ -19,13 +23,13 @@ Public Class PageSetupSystem
         IsLoaded = True
 
         AniControlEnabled += 1
-        Reload()
         SliderLoad()
         AniControlEnabled -= 1
 
     End Sub
     Public Sub Reload()
         SettingService.RefreshSettings(Me)
+        CheckSystemHintReset.SetChecked(Settings.GetHintsToReset("Hint").Count = 0, False)
     End Sub
     Public Sub Reset()
         Try
@@ -103,22 +107,26 @@ Public Class PageSetupSystem
         UpdateCheckByButton()
     End Sub
     '重置提示状态
-    Private Sub BtnSystemHintReset_Click(sender As Object, e As EventArgs) Handles BtnSystemHintReset.Click
-        Dim HintKeys = Settings.GetHintsToReset("Hint")
-        If HintKeys.Count = 0 Then
-            Hint("没有提示被隐藏！", Log:=False)
+    Private Sub CheckSystemHintReset_Change(sender As Object, user As Boolean) Handles CheckSystemHintReset.Change
+        If AniControlEnabled <> 0 Then Return
+        If Not user Then Return
+        If Not sender.Checked Then
+            sender.SetChecked(True, False)
+            Hint("没有提示被手动关闭！", Log:=False)
             Return
         End If
-        If HasDownloadingTask() Then
-            Hint("请在所有下载任务完成后再来重置提示！", Log:=False)
+        Dim BlockHint = If(HasDownloadingTask(), "请在所有下载任务完成后再来重置提示状态！",
+                         If(McLaunchLoader.State = LoadState.Loading, "请在当前启动完成结束后再来重置提示状态！", Nothing))
+        If BlockHint IsNot Nothing Then
+            sender.SetChecked(False, False)
+            Hint(BlockHint, Log:=False)
             Return
         End If
-        If McLaunchLoader.State = LoadState.Loading Then
-            Hint("请在当前启动任务结束后再来重置提示！", Log:=False)
+        If MyMsgBox("是否要重置提示状态？该操作会重启 PCL 且不可撤销。", "重置确认", "确定并重启", "取消", IsWarn:=True) <> 1 Then
+            sender.SetChecked(False, False)
             Return
         End If
-        If MyMsgBox("是否要重置提示状态？该操作会重启 PCL 且不可撤销。", "重置确认", "确定并重启", "取消", IsWarn:=True) <> 1 Then Return
-        HintKeys.ForEach(Sub(k) Settings.Reset(k))
+        Settings.GetHintsToReset("Hint").ForEach(Sub(k) Settings.Reset(k))
         StartProcess(PathExe, "--wait")
         FrmMain.EndProgram(False)
     End Sub
