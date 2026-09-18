@@ -6,10 +6,6 @@ Public Class PageSetupSystem
         '重复加载部分
         PanBack.ScrollToHome()
 
-        AniControlEnabled += 1
-        Reload()
-        AniControlEnabled -= 1
-
         If BuildType = BuildTypes.Release Then
             PanDonate.Visibility = Visibility.Collapsed
         Else
@@ -23,13 +19,13 @@ Public Class PageSetupSystem
         IsLoaded = True
 
         AniControlEnabled += 1
+        Reload()
         SliderLoad()
         AniControlEnabled -= 1
 
     End Sub
     Public Sub Reload()
         SettingService.RefreshSettings(Me)
-        CheckSystemHintReset.SetChecked(Settings.GetHintsToReset("Hint").Count = 0, False)
     End Sub
     Public Sub Reset()
         Try
