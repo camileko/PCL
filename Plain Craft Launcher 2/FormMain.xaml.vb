@@ -901,7 +901,7 @@ Public Class FormMain
     Private Sub HandleDrag(sender As Object, e As DragEventArgs)
         Try
             If e.Handled AndAlso (e.Effects <> DragDropEffects.None) Then Return
-            e.Handled = True
+            '不能设 e.Handled，否则 WPF 不会把 Effects 回传给 OLE
             '缓存
             Static PrevData As IDataObject, PrevEffects As DragDropEffects
             If e.Data Is PrevData Then
