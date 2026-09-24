@@ -83,17 +83,12 @@ Public Module ModMusic
                         FrmMain.BtnExtraMusic.Logo = Logo.IconPlay
                         FrmMain.BtnExtraMusic.LogoScale = 0.8
                         ToolTipText = "已暂停：" & PathUtils.GetFileNameWithoutExtension(MusicCurrent)
-                        If MusicAllList.Count > 1 Then
+                        If MusicUnavailable Then
+                            ToolTipText += vbCrLf & "未检测到可用的音频设备，请检查驱动及声音设置。"
+                        ElseIf MusicAllList.Count > 1 Then
                             ToolTipText += vbCrLf & "左键恢复播放，右键播放下一曲。"
                         Else
                             ToolTipText += vbCrLf & "左键恢复播放，右键重新从头播放。"
-                        End If
-                    ElseIf MusicState = MusicStates.Stop Then
-                        FrmMain.BtnExtraMusic.Logo = Logo.IconButtonStop
-                        FrmMain.BtnExtraMusic.LogoScale = 0.9
-                        ToolTipText = "背景音乐已停止"
-                        If MusicUnavailable Then
-                            ToolTipText += vbCrLf & "未检测到可用的音频设备，请检查驱动及声音设置后左键重试。"
                         End If
                     Else
                         FrmMain.BtnExtraMusic.Logo = Logo.IconMusic
@@ -119,9 +114,7 @@ Public Module ModMusic
     ''' 让音乐在暂停、播放间切换，并显示提示文本。
     ''' </summary>
     Public Sub MusicControlPause()
-        If MusicUnavailable Then
-            MusicRefreshPlay(False)
-        ElseIf MusicNAudio Is Nothing Then
+        If MusicNAudio Is Nothing AndAlso Not MusicUnavailable Then
             Hint("音乐播放尚未开始！", HintType.Red)
         Else
             Select Case MusicState
@@ -164,7 +157,8 @@ Public Module ModMusic
     ''' </summary>
     Public ReadOnly Property MusicState As MusicStates
         Get
-            If MusicUnavailable OrElse MusicNAudio Is Nothing Then Return MusicStates.Stop
+            If MusicUnavailable Then Return MusicStates.Pause
+            If MusicNAudio Is Nothing Then Return MusicStates.Stop
             Select Case MusicNAudio.PlaybackState
                 Case 0 'PlaybackState.Stopped
                     Return MusicStates.Stop
@@ -289,7 +283,6 @@ Public Module ModMusic
     Private MusicCurrent As String = ""
     ''' <summary>
     ''' 音频设备是否不可用。
-    ''' 为 True 时播放线程已退出。
     ''' </summary>
     Private MusicUnavailable As Boolean = False
     ''' <summary>
