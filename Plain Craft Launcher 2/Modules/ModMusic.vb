@@ -88,6 +88,13 @@ Public Module ModMusic
                         Else
                             ToolTipText += vbCrLf & "左键恢复播放，右键重新从头播放。"
                         End If
+                    ElseIf MusicState = MusicStates.Stop Then
+                        FrmMain.BtnExtraMusic.Logo = Logo.IconButtonStop
+                        FrmMain.BtnExtraMusic.LogoScale = 0.9
+                        ToolTipText = "背景音乐已停止"
+                        If MusicUnavailable Then
+                            ToolTipText += vbCrLf & "未检测到可用的音频设备，请检查驱动及声音设置后左键重试。"
+                        End If
                     Else
                         FrmMain.BtnExtraMusic.Logo = Logo.IconMusic
                         FrmMain.BtnExtraMusic.LogoScale = 1
@@ -112,7 +119,9 @@ Public Module ModMusic
     ''' 让音乐在暂停、播放间切换，并显示提示文本。
     ''' </summary>
     Public Sub MusicControlPause()
-        If MusicNAudio Is Nothing Then
+        If MusicUnavailable Then
+            MusicRefreshPlay(False)
+        ElseIf MusicNAudio Is Nothing Then
             Hint("音乐播放尚未开始！", HintType.Red)
         Else
             Select Case MusicState
@@ -155,7 +164,7 @@ Public Module ModMusic
     ''' </summary>
     Public ReadOnly Property MusicState As MusicStates
         Get
-            If MusicNAudio Is Nothing Then Return MusicStates.Stop
+            If MusicUnavailable OrElse MusicNAudio Is Nothing Then Return MusicStates.Stop
             Select Case MusicNAudio.PlaybackState
                 Case 0 'PlaybackState.Stopped
                     Return MusicStates.Stop
@@ -214,7 +223,10 @@ Public Module ModMusic
         If Address Is Nothing Then Return
         Logger.Info($"播放开始：{Address}")
         MusicCurrent = Address
-        RunInNewThread(Sub() MusicLoop(IsFirstLoad), "Music", ThreadPriority.BelowNormal)
+        '递增序号取消上一个播放线程，避免多个线程同时初始化
+        MusicUuid += 1
+        Dim Uuid = MusicUuid
+        RunInNewThread(Sub() MusicLoop(Uuid, IsFirstLoad), "Music", ThreadPriority.BelowNormal)
     End Sub
 
     '播放与暂停
@@ -240,6 +252,11 @@ Public Module ModMusic
     ''' 继续音乐播放，返回是否成功切换了状态。
     ''' </summary>
     Public Function MusicResume() As Boolean
+        If MusicUnavailable Then
+            Logger.Info("音乐播放功能此前不可用，尝试重新开始播放")
+            RunInUi(Sub() MusicRefreshPlay(False))
+            Return False
+        End If
         If MusicState = MusicStates.Play OrElse Not MusicAllList.Any() Then
             Logger.Info($"无需继续播放，当前状态为 {MusicState}")
             Return False
@@ -270,17 +287,26 @@ Public Module ModMusic
     ''' 当前播放的音乐地址。
     ''' </summary>
     Private MusicCurrent As String = ""
+    ''' <summary>
+    ''' 音频设备是否不可用。
+    ''' 为 True 时播放线程已退出。
+    ''' </summary>
+    Private MusicUnavailable As Boolean = False
+    ''' <summary>
+    ''' 当前播放线程的序号。
+    ''' </summary>
+    Private MusicUuid As Integer = 0
 
     ''' <summary>
-    ''' 在 MusicUuid 不变的前提下，持续播放某地址的音乐，且在播放结束后随机播放下一曲。
+    ''' 播放指定地址的音乐，且在播放结束后随机播放下一曲。
     ''' </summary>
-    Private Sub MusicLoop(Optional IsFirstLoad As Boolean = False)
+    Private Sub MusicLoop(Uuid As Integer, Optional IsFirstLoad As Boolean = False)
         Dim CurrentWave As WaveOutEvent = Nothing
         Dim Reader As WaveStream = Nothing
         Try
+            If Uuid <> MusicUuid Then Return
             '开始播放
             CurrentWave = New WaveOutEvent()
-            MusicNAudio = CurrentWave
             CurrentWave.DeviceNumber = -1
             Try
                 Reader = New AudioFileReader(MusicCurrent)
@@ -289,13 +315,16 @@ Public Module ModMusic
                 Reader = New MediaFoundationReader(MusicCurrent)
             End Try
             CurrentWave.Init(Reader)
+            If Uuid <> MusicUuid Then Return
+            MusicNAudio = CurrentWave
+            MusicUnavailable = False
             CurrentWave.Play()
             '第一次打开的暂停
             If IsFirstLoad AndAlso Not Settings.Get(Of Boolean)("UiMusicAuto") Then CurrentWave.Pause()
             MusicRefreshUI()
-            '停止条件：播放完毕或变化
+            '停止条件：播放完毕、被取代或实例被清除
             Dim PreviousVolume = 0
-            While CurrentWave.Equals(MusicNAudio) AndAlso Not CurrentWave.PlaybackState = PlaybackState.Stopped
+            While Uuid = MusicUuid AndAlso CurrentWave.Equals(MusicNAudio) AndAlso Not CurrentWave.PlaybackState = PlaybackState.Stopped
                 If Settings.Get(Of Integer)("UiMusicVolume") <> PreviousVolume Then
                     '更新音量
                     PreviousVolume = Settings.Get(Of Integer)("UiMusicVolume")
@@ -312,13 +341,21 @@ Public Module ModMusic
             If CurrentWave.PlaybackState = PlaybackState.Stopped AndAlso MusicAllList.Any Then MusicStartPlay(DequeueNextMusicAddress)
         Catch ex As Exception
             Logger.Warn(ex, $"播放音乐出现内部错误（{MusicCurrent}）")
+            MusicNAudio = Nothing
             If TypeOf ex Is NAudio.MmException AndAlso ex.Message.Contains("AlreadyAllocated") Then
+                MusicUnavailable = True
                 Hint("你的音频设备正被其他程序占用。请在关闭占用的程序后重启 PCL，才能恢复音乐播放功能！", HintType.Red)
-                Thread.Sleep(1000000000)
             End If
             If TypeOf ex Is NAudio.MmException AndAlso (ex.Message.Contains("NoDriver") OrElse ex.Message.Contains("BadDeviceId")) Then
-                Hint("由于音频设备变更，音乐播放功能在重启 PCL 后才能恢复！", HintType.Red)
-                Thread.Sleep(1000000000)
+                MusicUnavailable = True
+                If WaveOut.DeviceCount <= 0 Then
+                    Hint("未检测到可用的音频设备，请检查驱动及声音设置！", HintType.Red)
+                Else
+                    Hint("由于音频设备变更，音乐播放功能在重启 PCL 后才能恢复！", HintType.Red)
+                End If
+            End If
+            If MusicUnavailable Then
+                Return
             End If
             If Not (MusicCurrent.EndsWithF(".wav", True) OrElse MusicCurrent.EndsWithF(".mp3", True) OrElse MusicCurrent.EndsWithF(".flac", True)) OrElse
                 ex.Message.Contains("0xC00D36C4") Then '#5096：不支持给定的 URL 的字节流类型。 (异常来自 HRESULT:0xC00D36C4)
@@ -340,7 +377,7 @@ Public Module ModMusic
         Finally
             If CurrentWave IsNot Nothing Then CurrentWave.Dispose()
             If Reader IsNot Nothing Then Reader.Dispose()
-            MusicRefreshUI()
+            If Uuid = MusicUuid Then MusicRefreshUI()
         End Try
     End Sub
 
