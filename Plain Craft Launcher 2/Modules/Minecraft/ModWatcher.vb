@@ -330,7 +330,7 @@ Public Module ModWatcher
                     Dim ProcessId As Integer
                     GetWindowThreadProcessId(hwnd, ProcessId)
                     Try
-                        If Process.GetProcessById(ProcessId).StartTime < GameProcess.StartTime Then Return '需要是此后启动的进程
+                        If Process.GetProcessById(ProcessId).Id <> GameProcess.Id Then Return '需要是游戏进程本身
                     Catch ex As Exception
                         Logger.Warn(ex, "枚举 Minecraft 窗口进程失败")
                         Return
